@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>列表式單字背誦工具</title>
+
+<style>
+/* --- 基礎設定不變 --- */
+body{
+  margin:0;padding:18px; background:#a3d2f1;
+  font-family:system-ui,"Noto Sans TC", sans-serif;
+  user-select: none;
+}
+.container{max-width:900px;margin:auto;}
+header h1{
+  margin:0;padding:10px 14px;background:#fff;border-radius:8px;
+  font-size:20px;box-shadow:0 6px 16px rgba(0,0,0,.06);
+}
+
+/* --- 修改重點：顯示區 --- */
+.display{
+  position:relative;margin-top:14px;background:#fff;
+  border-radius:12px;border:1px solid #e6edff;
+  box-shadow:0 8px 24px rgba(0,0,0,.06);
+  /* 增加 padding-top 避開進度文字，底部留白 */
+  padding: 40px 0 0 0; 
+  height:500px; 
+  display:flex;
+  flex-direction:column;
+  overflow:hidden; /* 禁止捲動 */
+  cursor: pointer;
+}
+
+/* 列表容器 */
+#listContainer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 確保內容不超出 */
+  justify-content: flex-start; /* 從頂部開始排列 */
+}
+
+/* --- 修改重點：單字列緊密排列 --- */
+.word-row {
+  display: flex;
+  align-items: center;
+  /* 縮小 Padding 讓排列更緊密 */
+  padding: 8px 16px; 
+  /* 僅用底線分隔，不留空隙 */
+  border-bottom: 1px solid #e0e0e0; 
+  background: #fff;
+  transition: background 0.2s;
+  /* 防止被壓縮 */
+  flex-shrink: 0; 
+  /* 預設佔用空間，確保計算高度準確 */
+  min-height: auto; 
+}
+
+.word-row:last-child {
+  border-bottom: none; /* 最後一個不用底線 */
+}
+
+.word-row:hover {
+  background: #f4f9ff;
+}
+
+/* 左側單字 */
+.row-word {
+  flex: 0 0 30%; 
+  font-size: 18px;
+  font-weight: 700;
+  color: #0b63d6;
+  padding-right: 10px;
+  word-break: break-word;
+}
+
+/* 中間解釋區 */
+.row-def {
+  flex: 1;
+  font-size: 15px;
+  color: #333;
+  line-height: 1.4;
+  opacity: 0; /* 預設看不到但佔位，確保排版高度一致 */
+  transition: opacity 0.2s;
+}
+
+.word-row.revealed .row-def {
+  opacity: 1;
+}
+
+.def-part { font-size: 12px; color: #888; margin-right: 4px; border:1px solid #eee; padding:1px 4px; border-radius:4px;}
+.def-text { font-weight: 600; }
+
+/* 右側獨立不熟按鈕 */
+.row-hard-btn {
+  flex: 0 0 28px;
+  height: 28px;
+  margin-left: 10px;
+  border-radius: 50%;
+  border: 1px solid #eee;
+  background: #fff;
+  color: #ccc;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.row-hard-btn:hover { background: #fff6f0; color: #ff9f7d; }
+.row-hard-btn.active { background: #fff6f0; color: #d65a00; border-color: #ffd9cc; }
+
+/* 其他介面元素 */
+.icon-btn{ position:absolute;top:10px;right:10px;width:30px;height:30px;border-radius:50%;border:none;background:#eef4ff;color:#0b63d6;font-size:16px;cursor:pointer;z-index: 10; }
+.progress{ position:absolute;top:14px;left:18px;font-size:14px;color:#666;font-weight:600;z-index: 10; }
+.hint-text { position:absolute; top:14px; left:50%; transform:translateX(-50%); font-size:12px; color:#aaa; pointer-events:none; }
+
+/* 控制區與全螢幕設定 */
+.controls{ display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.controls-row{ display:flex; gap:8px; align-items:center; }
+.controls button, .controls input{ height:36px; padding:0 12px; border-radius:8px; border:1px solid #d7e6fd;background:#fff; color:#0b63d6;font-weight:700; cursor:pointer; font-size:14px; }
+.controls-row:first-child button{ flex:1; }
+.adder{ margin-top:14px;background:#fff;padding:14px; border-radius:10px;border:1px solid #eef3fb; }
+.adder button{ padding:8px 14px;border-radius:8px;border:1px solid #d7e6fd; background:#fff;color:#0b63d6;font-weight:700;cursor:pointer; }
+.fullscreen .display{ position:fixed;inset:0;height:100%;z-index:9999; margin:0; border-radius:0; border:none; padding-top: 60px; }
+.fullscreen header, .fullscreen .controls, .fullscreen .adder{display:none;}
+.toggle-btn.active{ background:#eef4ff;border-color:#0b63d6; }
+#jumpInput{ padding:0 10px; flex:1; }
+#exportHard{ min-width:150px; }
+</style>
+</head>
+
+<body>
+<div class="container" id="root">
+<header><h1>列表式單字背誦工具</h1></header>
+<div class="display" id="display">
+  <div class="progress" id="progress">0 / 0</div>
+  <div class="hint-text" id="hintText">點擊查看答案 → 再點下一頁</div>
+  <button class="icon-btn" id="fsBtn" title="全螢幕">⛶</button>
+  <div id="listContainer">
+    <div style="text-align:center;color:#999;margin-top:100px;">尚未載入單字表</div>
+  </div>
+</div>
+<div class="controls">
+  <div class="controls-row">
+    <button id="prevPage">上一頁</button>
+    <button id="nextPage">下一頁</button>
+    <button class="toggle-btn" id="toggleChineseBtn" title="開啟後預設顯示中文">一律顯示中文</button>
+  </div>
+  <div class="controls-row">
+    <input type="text" id="jumpInput" placeholder="輸入單字編號 (1～n)">
+    <button id="jumpBtn">跳轉</button>
+  </div>
+  <div class="controls-row">
+    <button id="exportHard">匯出不熟單字 (0)</button>
+  </div>
+</div>
+<div class="adder">
+  <strong>加入單字表</strong>
+  <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+    <select id="vocabSelect" style="min-width:200px;padding:6px;border-radius:6px;border:1px solid #e6eefc;"></select>
+    <button id="loadVocab">載入選定</button>
+    <button id="pasteJson">📋 剪貼簿</button>
+    <button id="openFile">📁 選擇檔案</button>
+    <input type="file" id="fileInput" accept=".json" hidden>
+    <button id="loadHardVocab">載入不熟清單</button>
+  </div>
+</div>
+</div>
+
+<script>
+/* ===== DOM ===== */
+const root = document.getElementById("root");
+const display = document.getElementById("display");
+const listContainer = document.getElementById("listContainer");
+const progress = document.getElementById("progress");
+const hintText = document.getElementById("hintText");
+const fsBtn = document.getElementById("fsBtn");
+const prevPage = document.getElementById("prevPage");
+const nextPage = document.getElementById("nextPage");
+const toggleChineseBtn = document.getElementById("toggleChineseBtn");
+const jumpInput = document.getElementById("jumpInput");
+const jumpBtn = document.getElementById("jumpBtn");
+const pasteJson = document.getElementById("pasteJson");
+const openFile = document.getElementById("openFile");
+const fileInput = document.getElementById("fileInput");
+const vocabSelect = document.getElementById("vocabSelect");
+const loadVocabBtn = document.getElementById("loadVocab");
+const exportHard = document.getElementById("exportHard");
+const loadHardVocab = document.getElementById("loadHardVocab");
+
+/* ===== State ===== */
+let words = [];
+let currentStartIndex = 0; // 當前頁面第一個單字的索引
+let historyStack = [0]; // 紀錄每一頁的起始索引，用於上一頁功能
+let visibleCount = 0;   // 當前頁面實際能放幾個單字
+let showChineseAlways = false; 
+let fullscreen = false;
+let pageRevealed = false; 
+let hardList = [];
+
+try {
+  hardList = JSON.parse(localStorage.getItem("hardList") || "[]");
+  if (!Array.isArray(hardList)) hardList = [];
+} catch { hardList = []; }
+
+/* ===== 核心 Render 邏輯 (動態填充) ===== */
+function render() {
+  if (!words.length) {
+    listContainer.innerHTML = '<div style="text-align:center;color:#999;margin-top:100px;">尚未載入單字表</div>';
+    progress.textContent = "0 / 0";
+    hintText.style.display = 'none';
+    return;
+  }
+  hintText.style.display = 'block';
+  listContainer.innerHTML = "";
+  
+  // 重置計數
+  visibleCount = 0;
+  
+  // 嘗試從 currentStartIndex 開始加入單字
+  for (let i = currentStartIndex; i < words.length; i++) {
+    const w = words[i];
+    const isHard = hardList.some(h => h.word === w.word);
+    
+    // 建立 Row
+    const row = document.createElement("div");
+    row.className = "word-row";
+    // 即使是隱藏模式，也必須讓內容佔位 (opacity: 0)，這樣切換顯示時才不會爆框
+    if (showChineseAlways || pageRevealed) row.classList.add("revealed");
+
+    let defText = "";
+    if(w.definitions && w.definitions.length > 0){
+        const d = w.definitions[0];
+        defText = `<span class="def-part">${d.part_of_speech}</span><span class="def-text">${d.meaning_zh}</span>`;
+    }
+
+    row.innerHTML = `
+      <div class="row-word">${w.word}</div>
+      <div class="row-def">${defText}</div>
+      <button class="row-hard-btn ${isHard ? 'active' : ''}">
+        ${isHard ? '★' : '☆'}
+      </button>
+    `;
+
+    // 綁定不熟按鈕
+    const btn = row.querySelector('.row-hard-btn');
+    btn.onclick = (e) => {
+      e.stopPropagation(); 
+      toggleHardWord(w, btn);
+    };
+
+    // 加入容器
+    listContainer.appendChild(row);
+
+    // --- 關鍵修改：檢查高度是否溢出 ---
+    if (listContainer.scrollHeight > listContainer.clientHeight) {
+      // 溢出了！移除這一個，並結束迴圈
+      listContainer.removeChild(row);
+      break;
+    } else {
+      // 沒溢出，算入有效顯示
+      visibleCount++;
+    }
+  }
+
+  // 更新進度條
+  const endIdx = currentStartIndex + visibleCount;
+  progress.textContent = `Words ${currentStartIndex + 1} - ${endIdx} / ${words.length}`;
+  
+  // 更新提示
+  if(showChineseAlways) hintText.textContent = "點擊翻下一頁";
+  else hintText.textContent = pageRevealed ? "再次點擊翻下一頁" : "點擊查看答案";
+  
+  updateHardExportText();
+}
+
+/* ===== 顯示區點擊互動 ===== */
+display.addEventListener("click", (e) => {
+  if(!words.length) return;
+  if(e.target.closest("button")) return;
+
+  if(showChineseAlways) {
+    goNextPage();
+  } else {
+    if(!pageRevealed) {
+      pageRevealed = true;
+      // 這裡不需要重新 render 整個列表（效率較高），只需加上 class
+      const rows = listContainer.querySelectorAll('.word-row');
+      rows.forEach(r => r.classList.add('revealed'));
+      hintText.textContent = "再次點擊翻下一頁";
+    } else {
+      goNextPage();
+    }
+  }
+});
+
+/* ===== 翻頁邏輯 ===== */
+function goNextPage() {
+  // 檢查是否已經顯示完最後一個單字
+  if (currentStartIndex + visibleCount >= words.length) {
+    // === 修改點：回到第一頁 ===
+    currentStartIndex = 0;
+    historyStack = [0]; // 重置上一頁的歷史紀錄
+    pageRevealed = false;
+    render();
+    return;
+  }
+
+  // 正常的下一頁邏輯
+  const nextIdx = currentStartIndex + visibleCount;
+  historyStack.push(nextIdx); // 存入歷史
+  currentStartIndex = nextIdx;
+  pageRevealed = false;
+  render();
+}
+
+
+function goPrevPage() {
+  if (historyStack.length <= 1) {
+    // 已在第一頁 (stack 至少有 [0])
+    return;
+  }
+  historyStack.pop(); // 移除當前頁起始點
+  currentStartIndex = historyStack[historyStack.length - 1]; // 讀取上一頁起始點
+  pageRevealed = false;
+  render();
+}
+
+prevPage.onclick = (e) => { e.stopPropagation(); goPrevPage(); };
+nextPage.onclick = (e) => { e.stopPropagation(); goNextPage(); };
+
+/* ===== 跳轉邏輯 (改為跳轉到指定單字編號) ===== */
+jumpBtn.onclick = (e) => {
+  e.stopPropagation();
+  const val = parseInt(jumpInput.value);
+  if (!isNaN(val) && val >= 1 && val <= words.length) {
+    // 重置歷史堆疊，直接跳到該單字為起始
+    historyStack = [val - 1];
+    currentStartIndex = val - 1;
+    pageRevealed = false;
+    render();
+    jumpInput.value = "";
+  } else {
+    alert(`請輸入單字編號 (1 ~ ${words.length})`);
+  }
+};
+
+/* ===== 其他功能 (維持原樣) ===== */
+toggleChineseBtn.onclick = (e) => {
+  e.stopPropagation();
+  showChineseAlways = !showChineseAlways;
+  toggleChineseBtn.classList.toggle("active", showChineseAlways);
+  toggleChineseBtn.textContent = showChineseAlways ? "隱藏中文" : "一律顯示中文";
+  if(!showChineseAlways) pageRevealed = false;
+  render();
+};
+
+function toggleHardWord(wordObj, btnEl) {
+  const idx = hardList.findIndex(h => h.word === wordObj.word);
+  if (idx >= 0) {
+    hardList.splice(idx, 1);
+    btnEl.classList.remove("active");
+    btnEl.textContent = "☆";
+  } else {
+    hardList.push(wordObj);
+    btnEl.classList.add("active");
+    btnEl.textContent = "★";
+  }
+  localStorage.setItem("hardList", JSON.stringify(hardList));
+  updateHardExportText();
+}
+
+function updateHardExportText() {
+  exportHard.textContent = `匯出不熟單字 (${hardList.length})`;
+}
+
+exportHard.onclick = (e) => {
+  e.stopPropagation();
+  if (!hardList.length) return alert("清單為空");
+  const blob = new Blob([JSON.stringify(hardList, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hard_words.json";
+  a.click();
+};
+
+loadHardVocab.onclick = (e) => {
+  e.stopPropagation();
+  if (!hardList.length) return alert("沒有紀錄的不熟單字");
+  words = JSON.parse(JSON.stringify(hardList));
+  currentStartIndex = 0;
+  historyStack = [0];
+  pageRevealed = false;
+  render();
+};
+
+async function loadData(data) {
+  if (!Array.isArray(data)) return alert("格式錯誤");
+  words = data;
+  currentStartIndex = 0;
+  historyStack = [0];
+  pageRevealed = false;
+  render();
+}
+
+pasteJson.onclick = async (e) => {
+  e.stopPropagation();
+  try {
+    const text = await navigator.clipboard.readText();
+    loadData(JSON.parse(text));
+  } catch { alert("剪貼簿內容無效"); }
+};
+
+openFile.onclick = (e) => { e.stopPropagation(); fileInput.click(); };
+fileInput.onchange = () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try { loadData(JSON.parse(e.target.result)); }
+    catch { alert("檔案格式錯誤"); }
+  };
+  reader.readAsText(file);
+};
+
+/* 專案列表載入 */
+async function initVocabList() {
+  try {
+    const res = await fetch("vocabulary/list.json");
+    if (!res.ok) throw 0;
+    const list = await res.json();
+    vocabSelect.innerHTML = "";
+    list.forEach(item => {
+      const opt = document.createElement("option");
+      opt.value = item.path;
+      opt.textContent = item.label || item.path;
+      vocabSelect.appendChild(opt);
+    });
+    if(list.length > 0) loadVocabFile(list[0].path);
+  } catch (e) { console.log("Init list failed", e); }
+}
+
+async function loadVocabFile(path) {
+  try {
+    const res = await fetch(path);
+    loadData(await res.json());
+  } catch { alert("載入失敗: " + path); }
+}
+
+loadVocabBtn.onclick = (e) => { e.stopPropagation(); loadVocabFile(vocabSelect.value); };
+
+fsBtn.onclick = (e) => {
+  e.stopPropagation();
+  fullscreen = !fullscreen;
+  root.classList.toggle("fullscreen", fullscreen);
+  fsBtn.textContent = fullscreen ? "✕" : "⛶";
+  // 切換全螢幕後高度改變，需重新計算能放幾個單字
+  setTimeout(render, 100); 
+};
+
+document.addEventListener('keydown', (e) => {
+    if(e.code === 'Space' || e.code === 'Enter') {
+        if(words.length > 0) {
+            e.preventDefault();
+            if(showChineseAlways) goNextPage();
+            else {
+                if(!pageRevealed) { 
+                  pageRevealed = true; 
+                  const rows = listContainer.querySelectorAll('.word-row');
+                  rows.forEach(r => r.classList.add('revealed'));
+                  hintText.textContent = "再次點擊翻下一頁";
+                }
+                else goNextPage();
+            }
+        }
+    }
+});
+
+initVocabList().then(()=>updateHardExportText());
+</script>
+</body>
+</html>
